@@ -11,24 +11,27 @@ import config
 class ParsingNet(nn.Module):
     def __init__(self, language_model, word_dim=768, hidden_size=768, decoder_input_size=768,
                  atten_model="Dotproduct", classifier_input_size=768, classifier_hidden_size=768, classes_label=42, classifier_bias=True,
-                 rnn_layers=1, dropout_e=0.5, dropout_d=0.5, dropout_c=0.5, bert_tokenizer=None):
+                 rnn_layers=1, dropout_e=0.5, dropout_d=0.5, dropout_c=0.5, bert_tokenizer=None,
+                 gpu=True):
 
         super(ParsingNet, self).__init__()
         '''
         Args:
             batch_size: batch size
-            word_dim: word embedding dimension 
-            hidden_size: hidden size of encoder and decoder 
+            word_dim: word embedding dimension
+            hidden_size: hidden size of encoder and decoder
             decoder_input_size: input dimension of decoder
-            atten_model: pointer attention machanisam, 'Dotproduct' or 'Biaffine' 
-            device: device that our model is running on 
-            classifier_input_size: input dimension of labels classifier 
+            atten_model: pointer attention machanisam, 'Dotproduct' or 'Biaffine'
+            device: device that our model is running on
+            classifier_input_size: input dimension of labels classifier
             classifier_hidden_size: classifier hidden space
             classes_label: relation(label) number, default = 39
             classifier_bias: bilinear bias in classifier, default = True
             rnn_layers: encoder and decoder layer number
             dropout: dropout rate
+            gpu: use GPU if True, else: use CPU
         '''
+        self.gpu = gpu
         self.word_dim = word_dim
         self.hidden_size = hidden_size
         self.decoder_input_size = decoder_input_size
@@ -37,15 +40,15 @@ class ParsingNet(nn.Module):
         self.classes_label = classes_label
         self.classifier_bias = classifier_bias
         self.rnn_layers = rnn_layers
-        self.segmenter = Segmenter(hidden_size)
-        self.encoder = EncoderRNN(language_model, word_dim, hidden_size, config.enc_rnn_layer_num, dropout_e, bert_tokenizer=bert_tokenizer, segmenter=self.segmenter)
+        self.segmenter = Segmenter(hidden_size, gpu=self.gpu)
+        self.encoder = EncoderRNN(language_model, word_dim, hidden_size, config.enc_rnn_layer_num, dropout_e, bert_tokenizer=bert_tokenizer, segmenter=self.segmenter, gpu=self.gpu)
         self.decoder = DecoderRNN(decoder_input_size, hidden_size, rnn_layers, dropout_d)
         self.pointer = PointerAtten(atten_model, hidden_size)
         self.getlabel = LabelClassifier(classifier_input_size, classifier_hidden_size, classes_label, bias=True, dropout=dropout_c)
 
     def forward(self):
         raise RuntimeError('Parsing Network does not have forward process.')
-        
+
 
     def TestingLoss(self, input_sentence, input_EDU_breaks, LabelIndex, ParsingIndex, GenerateTree, use_pred_segmentation):
         '''
@@ -72,8 +75,13 @@ class ParsingNet(nn.Module):
         Label_LossFunction = nn.NLLLoss()
         Span_LossFunction = nn.NLLLoss()
 
-        Loss_label_batch = torch.FloatTensor([0.0]).cuda()
-        Loss_tree_batch = torch.FloatTensor([0.0]).cuda()
+        if self.gpu is False:
+            Loss_label_batch = torch.FloatTensor([0.0]).cpu()
+            Loss_tree_batch = torch.FloatTensor([0.0]).cpu()
+        else:
+            Loss_label_batch = torch.FloatTensor([0.0]).cuda()
+            Loss_tree_batch = torch.FloatTensor([0.0]).cuda()
+
         Loop_label_batch = 0
         Loop_tree_batch = 0
 
@@ -90,7 +98,12 @@ class ParsingNet(nn.Module):
 
             cur_LabelIndex = LabelIndex[i]
             cur_LabelIndex = torch.tensor(cur_LabelIndex)
-            cur_LabelIndex = cur_LabelIndex.cuda()
+
+            if self.gpu is False:
+                cur_LabelIndex = cur_LabelIndex.cpu()
+            else:
+                cur_LabelIndex = cur_LabelIndex.cuda()
+
             cur_ParsingIndex = ParsingIndex[i]
 
             if len(EDU_breaks[i]) == 1:
@@ -236,7 +249,11 @@ class ParsingNet(nn.Module):
                             temp_ground = stack_head[-2] - stack_head[0]
                         # Compute Tree Loss
                         cur_ground_index = torch.tensor([temp_ground])
-                        cur_ground_index = cur_ground_index.cuda()
+
+                        if self.gpu is False:
+                            cur_ground_index = cur_ground_index.cpu()
+                        else:
+                            cur_ground_index = cur_ground_index.cuda()
 
                         if use_pred_segmentation is False:
                             Loss_tree_batch = Loss_tree_batch + Span_LossFunction(log_atten_weights, cur_ground_index)
@@ -282,8 +299,12 @@ class ParsingNet(nn.Module):
 
         Loss_tree_batch = Loss_tree_batch / Loop_tree_batch
 
-        Loss_label_batch = Loss_label_batch.detach().cpu().numpy()
-        Loss_tree_batch = Loss_tree_batch.detach().cpu().numpy()
+        if self.gpu is False:
+            Loss_label_batch = Loss_label_batch.detach().cpu().numpy()
+            Loss_tree_batch = Loss_tree_batch.detach().cpu().numpy()
+        else:
+            Loss_label_batch = Loss_label_batch.detach().cuda().numpy()
+            Loss_tree_batch = Loss_tree_batch.detach().cuda().numpy()
 
         merged_label_gold = []
         for tmp_i in LabelIndex:

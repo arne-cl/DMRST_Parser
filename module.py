@@ -7,7 +7,7 @@ import numpy as np
 
 
 class EncoderRNN(nn.Module):
-    def __init__(self, language_model, word_dim, hidden_size, rnn_layers, dropout, bert_tokenizer=None, segmenter=None):
+    def __init__(self, language_model, word_dim, hidden_size, rnn_layers, dropout, bert_tokenizer=None, segmenter=None, gpu=True):
 
         super(EncoderRNN, self).__init__()
         '''
@@ -33,6 +33,7 @@ class EncoderRNN(nn.Module):
 
         self.segmenter = segmenter
         self.doc_gru_enc = nn.GRU(word_dim, int(word_dim / 2), num_layers=2, batch_first=True, dropout=0.2, bidirectional=True)
+        self.gpu = gpu
 
     def forward(self, input_sentence, EDU_breaks, is_test=False):
         if EDU_breaks is not None or is_test is False:
@@ -45,14 +46,22 @@ class EncoderRNN(nn.Module):
 
         """ version 3.0 """
         # for segmenter initialization
-        total_edu_loss = torch.FloatTensor([0.0]).cuda()
+        if self.gpu is False:
+            total_edu_loss = torch.FloatTensor([0.0]).cpu()
+        else:
+            total_edu_loss = torch.FloatTensor([0.0]).cuda()
+
         predict_edu_breaks_list = []
         tem_outputs = []
 
         """ For averaging the edu level embeddings START """
         for i in range(len(input_sentence)):
             bert_token_ids = [self.bert_tokenizer.convert_tokens_to_ids(input_sentence[i])]
-            bert_token_ids = torch.LongTensor(bert_token_ids).cuda()
+
+            if self.gpu is False:
+                bert_token_ids = torch.LongTensor(bert_token_ids).cpu()
+            else:
+                bert_token_ids = torch.LongTensor(bert_token_ids).cuda()
             # print(bert_token_ids.shape)
 
             """ fixed sliding window for encoding long sequence """
@@ -120,7 +129,10 @@ class EncoderRNN(nn.Module):
             max_edu_break_num = max([len(tmp_l) for tmp_l in predict_edu_breaks_list])
         for output in tem_outputs:
             cur_break_num = output.size(1)
-            all_outputs.append(torch.cat([output, torch.zeros(1, max_edu_break_num - cur_break_num, self.word_dim).cuda()], dim=1))
+            if self.gpu is False:
+                all_outputs.append(torch.cat([output, torch.zeros(1, max_edu_break_num - cur_break_num, self.word_dim).cpu()], dim=1))
+            else:
+                all_outputs.append(torch.cat([output, torch.zeros(1, max_edu_break_num - cur_break_num, self.word_dim).cuda()], dim=1))
 
         res_merged_output = torch.cat(all_outputs, dim=0)
         res_merged_hidden = torch.cat(all_hidden, dim=1)
@@ -130,7 +142,10 @@ class EncoderRNN(nn.Module):
     def GetEDURepresentation(self, input_sentence):
         tmp_max_token_num = len(input_sentence[0])
         bert_token_ids = [self.bert_tokenizer.convert_tokens_to_ids(v) + [5, ] * (tmp_max_token_num - len(v)) for k, v in enumerate(input_sentence)]
-        bert_token_ids = torch.LongTensor(bert_token_ids).cuda()
+        if self.gpu is False:
+            bert_token_ids = torch.LongTensor(bert_token_ids).cpu()
+        else:
+            bert_token_ids = torch.LongTensor(bert_token_ids).cuda()
         bert_embeddings = self.language_model(bert_token_ids)
 
         return bert_embeddings[0]
@@ -264,8 +279,7 @@ class LabelClassifier(nn.Module):
 
 
 class Segmenter_pointer(nn.Module):
-
-    def __init__(self, hidden_size, atten_model=None, decoder_input_size=None, rnn_layers=None, dropout_d=None):
+    def __init__(self, hidden_size, atten_model=None, decoder_input_size=None, rnn_layers=None, dropout_d=None, gpu=True):
         super(Segmenter_pointer, self).__init__()
 
         self.hidden_size = hidden_size
@@ -273,6 +287,7 @@ class Segmenter_pointer(nn.Module):
         self.encoder = nn.GRU(hidden_size, int(hidden_size / 2), num_layers=1, batch_first=True, dropout=0.2, bidirectional=True)
         self.decoder = DecoderRNN(decoder_input_size, hidden_size, rnn_layers, dropout_d)
         self.loss_function = nn.NLLLoss()
+        self.gpu = gpu
 
     def forward(self):
         raise RuntimeError('Segmenter does not have forward process.')
@@ -282,12 +297,21 @@ class Segmenter_pointer(nn.Module):
         outputs = outputs.squeeze()
         cur_decoder_hidden = outputs[-1, :].unsqueeze(0).unsqueeze(0)
         edu_breaks = [0] + edu_breaks
-        total_loss = torch.FloatTensor([0.0]).cuda()
+        if self.gpu is False:
+            total_loss = torch.FloatTensor([0.0]).cpu()
+        else:
+            total_loss = torch.FloatTensor([0.0]).cuda()
+
         for step, start_index in enumerate(edu_breaks[:-1]):
             cur_decoder_output, cur_decoder_hidden = self.decoder(outputs[start_index].unsqueeze(0).unsqueeze(0), last_hidden=cur_decoder_hidden)
 
             _, log_atten_weights = self.pointer(outputs[start_index:], cur_decoder_output.squeeze(0).squeeze(0))
-            cur_ground_index = torch.tensor([edu_breaks[step + 1] - start_index]).cuda()
+
+            if self.gpu is False:
+                cur_ground_index = torch.tensor([edu_breaks[step + 1] - start_index]).cpu()
+            else:
+                cur_ground_index = torch.tensor([edu_breaks[step + 1] - start_index]).cuda()
+
             total_loss = total_loss + self.loss_function(log_atten_weights, cur_ground_index)
 
         return total_loss
@@ -315,14 +339,19 @@ class Segmenter_pointer(nn.Module):
 
 
 class Segmenter(nn.Module):
-    def __init__(self, hidden_size):
+    def __init__(self, hidden_size, gpu=True):
         super(Segmenter, self).__init__()
 
         self.hidden_size = hidden_size
         self.drop_out = nn.Dropout(p=0.5)
         self.linear = nn.Linear(hidden_size, 2)
         self.linear_start = nn.Linear(hidden_size, 2)
-        self.loss_function = nn.CrossEntropyLoss(weight=torch.Tensor([1.0, 10.0]).cuda())
+        self.gpu = gpu
+
+        if self.gpu is False:
+            self.loss_function = nn.CrossEntropyLoss(weight=torch.Tensor([1.0, 10.0]).cpu())
+        else:
+            self.loss_function = nn.CrossEntropyLoss(weight=torch.Tensor([1.0, 10.0]).cuda())
 
     def forward(self):
         raise RuntimeError('Segmenter does not have forward process.')
@@ -337,8 +366,13 @@ class Segmenter(nn.Module):
         for i in edu_breaks[:-1]:
             edu_start_target[i + 1] = 1
 
-        edu_break_target = torch.LongTensor(edu_break_target).cuda()
-        edu_start_target = torch.LongTensor(edu_start_target).cuda()
+        if self.gpu is False:
+            edu_break_target = torch.LongTensor(edu_break_target).cpu()
+            edu_start_target = torch.LongTensor(edu_start_target).cpu()
+        else:
+            edu_break_target = torch.LongTensor(edu_break_target).cuda()
+            edu_start_target = torch.LongTensor(edu_start_target).cuda()
+
         outputs = self.linear(self.drop_out(word_embeddings))
         start_outputs = self.linear_start(self.drop_out(word_embeddings))
 
@@ -350,7 +384,12 @@ class Segmenter(nn.Module):
 
     def test_segment_loss(self, word_embeddings):
         outputs = self.linear(self.drop_out(word_embeddings))
-        pred = torch.argmax(outputs, dim=1).detach().cpu().numpy().tolist()
+
+        if self.gpu is False:
+            pred = torch.argmax(outputs, dim=1).detach().cpu().numpy().tolist()
+        else:
+            pred = torch.argmax(outputs, dim=1).detach().cuda().numpy().tolist()
+
         predict_segment = [i for i, k in enumerate(pred) if k == 1]
 
         if word_embeddings.size(0) - 1 not in predict_segment:

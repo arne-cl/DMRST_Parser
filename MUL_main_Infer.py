@@ -17,6 +17,7 @@ def parse_args():
     base_path = config.tree_infer_mode + "_mode/"
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--savepath', type=str, default=base_path + './Savings', help='Model save path')
+    parser.add_argument('--no-gpu', action='store_true', help='Run inference on CPU instead of GPU.')
     args = parser.parse_args()
     return args
 
@@ -54,15 +55,22 @@ if __name__ == '__main__':
     bert_tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base", use_fast=True)
     bert_model = AutoModel.from_pretrained("xlm-roberta-base")
 
-    bert_model = bert_model.cuda()
+    if args.no_gpu:
+        bert_model = bert_model.cpu()
+    else:
+        bert_model = bert_model.cuda()
 
     for name, param in bert_model.named_parameters():
         param.requires_grad = False
 
-    model = ParsingNet(bert_model, bert_tokenizer=bert_tokenizer)
-
-    model = model.cuda()
-    model.load_state_dict(torch.load(model_path))
+    if args.no_gpu:
+        model = ParsingNet(bert_model, bert_tokenizer=bert_tokenizer, gpu=False)
+        model = model.cpu()
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    else:
+        model = ParsingNet(bert_model, bert_tokenizer=bert_tokenizer, gpu=True)
+        model = model.cuda()
+        model.load_state_dict(torch.load(model_path))
     model = model.eval()
 
     Test_InputSentences = open("./data/text_for_inference.txt").readlines()

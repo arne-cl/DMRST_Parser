@@ -24,7 +24,8 @@ We trained and evaluated the model with the multilingual collection of RST disco
 ## How to use it for parsing
 * Put the text paragraph to the file `./data/text_for_inference.txt`. <br>
 * Run the script `MUL_main_Infer.py` to obtain the RST parsing result. See the script for detailed model output. <br>
-* We recommend users to run the parser on a GPU-equipped environment. <br>
+* We recommend users to run the parser on a GPU-equipped environment. If you don't have a GPU,
+  use the `--no-gpu` argument. <br>
 
 ## Citation
 ```

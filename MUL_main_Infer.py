@@ -1,11 +1,15 @@
+import io
 import os
 import torch
 import numpy as np
 import argparse
 import os
+import sys
 import config
+
 from transformers import AutoTokenizer, AutoModel
 from model_depth import ParsingNet
+
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(config.global_gpu_id)
 
@@ -18,6 +22,8 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--savepath', type=str, default=base_path + './Savings', help='Model save path')
     parser.add_argument('--no-gpu', action='store_true', help='Run inference on CPU instead of GPU.')
+    parser.add_argument('input_file', nargs='?', default="./data/text_for_inference.txt")
+    parser.add_argument('output_file', nargs='?', default=sys.stdout)
     args = parser.parse_args()
     return args
 
@@ -73,9 +79,16 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(model_path))
     model = model.eval()
 
-    Test_InputSentences = open("./data/text_for_inference.txt").readlines()
+    Test_InputSentences = open(args.input_file).readlines()
 
     input_sentences, all_segmentation_pred, all_tree_parsing_pred = inference(model, bert_tokenizer, Test_InputSentences, batch_size)
-    print(input_sentences[0])
-    print(all_segmentation_pred[0])
-    print(all_tree_parsing_pred[0])
+
+    if isinstance(args.output_file, io.TextIOWrapper):
+        print(input_sentences[0])
+        print(all_segmentation_pred[0])
+        print(all_tree_parsing_pred[0])
+    else:
+        with open(args.output_file, 'w') as out_file:
+            out_file.write(f"{input_sentences[0]}\n")
+            out_file.write(f"{all_segmentation_pred[0]}\n")
+            out_file.write(f"{all_tree_parsing_pred[0]}\n")

@@ -5,7 +5,7 @@
 * This repo and the pre-trained model is only for research use. <br>
 
 ## Package Requirements
-1. pytorch==1.7.1
+1. torch==1.7.1
 2. transformers==4.8.2
 
 ## Supported Languages

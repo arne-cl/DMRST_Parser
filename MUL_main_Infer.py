@@ -50,6 +50,12 @@ def inference(model, tokenizer, input_sentences, batch_size):
     return input_sentences, all_segmentation_pred, all_tree_parsing_pred
 
 
+def create_output_string(input_sentences, all_segmentation_pred, all_tree_parsing_pred):
+    return (f"{input_sentences[0]}\n"
+            f"{all_segmentation_pred[0]}\n"
+            f"{all_tree_parsing_pred[0]}\n")
+
+
 if __name__ == '__main__':
 
     args = parse_args()
@@ -82,13 +88,10 @@ if __name__ == '__main__':
     Test_InputSentences = open(args.input_file).readlines()
 
     input_sentences, all_segmentation_pred, all_tree_parsing_pred = inference(model, bert_tokenizer, Test_InputSentences, batch_size)
+    output_string = create_output_string(input_sentences, all_segmentation_pred, all_tree_parsing_pred)
 
     if isinstance(args.output_file, io.TextIOWrapper):
-        print(input_sentences[0])
-        print(all_segmentation_pred[0])
-        print(all_tree_parsing_pred[0])
+        print(output_string)
     else:
         with open(args.output_file, 'w') as out_file:
-            out_file.write(f"{input_sentences[0]}\n")
-            out_file.write(f"{all_segmentation_pred[0]}\n")
-            out_file.write(f"{all_tree_parsing_pred[0]}\n")
+            out_file.write(output_string)
